@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Contador de Fluxo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: palco de vídeo à esquerda com a linha de contagem; coluna de leitura à direita (lotação, fluxo, ajustes); registro abaixo. */
+:root{
+  --bg:#f2f5f8; --surface:#ffffff; --sunken:#e8edf2; --line:#d5dde5;
+  --ink:#15202b; --muted:#5a6a7a;
+  --accent:#0b62c4; --on-accent:#ffffff;
+  --in:#0c8566; --out:#bf5417; --warn:#a56a00; --alert:#c4243a;
+  --stage:#10161d; --stage-ink:#e9eff5;
+  --font-display:"Space Grotesk","Segoe UI",system-ui,sans-serif;
+  --font-body:"Inter","Segoe UI",system-ui,sans-serif;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0e141a; --surface:#172029; --sunken:#111920; --line:#2a3642;
+    --ink:#e6edf3; --muted:#90a1b1;
+    --accent:#5ba8f5; --on-accent:#08131f;
+    --in:#3ecf9e; --out:#f2935a; --warn:#e3b04b; --alert:#ff6b7a;
+    --stage:#070b0f; --stage-ink:#e9eff5;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--font-body);
+  padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+[hidden]{display:none!important}
+.app{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;justify-content:space-between}
+h1{font:700 1.5rem/1.1 var(--font-display);margin:0;letter-spacing:-.01em}
+h2{font:600 .78rem/1.2 var(--font-body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.status[data-s="live"] .dot{background:var(--in)}
+.status[data-s="demo"] .dot{background:var(--warn)}
+.status[data-s="err"] .dot{background:var(--alert)}
+.grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+
+/* palco */
+.stage{position:relative;width:100%;aspect-ratio:16/9;background:var(--stage);border-radius:var(--r);overflow:hidden}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.stage video{object-fit:fill}
+.stage canvas{pointer-events:none}
+.handle{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:3px solid #fff;background:var(--accent);
+  cursor:grab;touch-action:none;padding:0;box-shadow:0 1px 6px rgba(0,0,0,.5)}
+.handle:active{cursor:grabbing}
+.handle:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.chip{position:absolute;left:10px;top:10px;background:rgba(0,0,0,.62);color:var(--stage-ink);font-size:.78rem;padding:4px 10px;border-radius:999px}
+.msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:20px;
+  background:rgba(7,11,15,.82);color:var(--stage-ink)}
+.msg p{margin:0;max-width:46ch}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.hint{font-size:.84rem;color:var(--muted);margin:0}
+
+button,select,input{font:inherit;color:inherit}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.danger{color:var(--alert)}
+.btn.sm{padding:4px 10px;font-size:.85rem}
+select,input[type=text],input[type=url],input[type=number]{border:1px solid var(--line);background:var(--sunken);border-radius:8px;padding:7px 10px;min-width:0;width:100%}
+select.inline{width:auto;max-width:100%}
+
+/* leitura */
+.occ{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.occ b{font:700 4rem/1 var(--font-display);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.occ span{color:var(--muted)}
+.meter{height:8px;border-radius:99px;background:var(--sunken);overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--accent);border-radius:99px;transition:width .3s}
+.occwrap[data-lvl="warn"] .meter i{background:var(--warn)}
+.occwrap[data-lvl="alert"] .meter i{background:var(--alert)}
+.occwrap[data-lvl="alert"] .occ b{color:var(--alert)}
+.alertline{font-weight:600;color:var(--alert);margin:0}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;border-top:1px solid var(--line);padding-top:12px}
+.pair div{display:flex;flex-direction:column;gap:2px}
+.pair b{font:600 1.9rem/1.1 var(--font-display);font-variant-numeric:tabular-nums}
+.pair .in b{color:var(--in)} .pair .out b{color:var(--out)}
+.pair small{color:var(--muted);font-size:.82rem}
+.legend{display:flex;gap:14px;font-size:.82rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+#chart{width:100%;height:150px;display:block}
+.head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--muted)}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:420px){.fields{grid-template-columns:1fr}}
+.field.wide{grid-column:1/-1}
+input[type=range]{width:100%;accent-color:var(--accent)}
+details summary{cursor:pointer;font-size:.85rem;color:var(--muted)}
+pre{background:var(--sunken);border-radius:8px;padding:10px;overflow-x:auto;font-size:.76rem;margin:8px 0 0}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:.8rem}
+.tag{font-weight:600}.tag.in{color:var(--in)}.tag.out{color:var(--out)}
+.empty{color:var(--muted);margin:0}
+@media (prefers-reduced-motion:reduce){.meter i{transition:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Contador de Fluxo</h1>
+    <div class="status" id="status" data-s="demo"><span class="dot"></span><span id="statusText">Demonstração</span></div>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted hidden></video>
+        <canvas id="overlay"></canvas>
+        <button class="handle" id="hA" aria-label="Ponta A da linha de contagem. Arraste ou use as setas."></button>
+        <button class="handle" id="hB" aria-label="Ponta B da linha de contagem. Arraste ou use as setas."></button>
+        <div class="chip" id="demoChip">Demonstração · pessoas simuladas</div>
+        <div class="msg" id="msg" hidden><p id="msgText"></p></div>
+      </div>
+      <div class="bar">
+        <button class="btn primary" id="btnCam">Iniciar câmera</button>
+        <select class="inline" id="camSel" aria-label="Câmera" hidden></select>
+        <button class="btn" id="btnInv">Inverter sentido</button>
+        <button class="btn" id="btnLine">Linha horizontal</button>
+      </div>
+      <p class="hint">Arraste as duas pontas azuis para posicionar a linha sobre a passagem. A seta mostra o sentido que conta como entrada. O vídeo é analisado neste aparelho e nenhuma imagem é gravada ou enviada.</p>
+    </div>
+
+    <div class="col">
+      <div class="panel occwrap" id="occWrap">
+        <div class="head">
+          <h2>Lotação agora</h2>
+          <div class="bar">
+            <button class="btn sm" id="btnMinus" aria-label="Corrigir lotação: menos um">−1</button>
+            <button class="btn sm" id="btnPlus" aria-label="Corrigir lotação: mais um">+1</button>
+          </div>
+        </div>
+        <div class="occ"><b id="occ">0</b><span id="occOf">de 50 pessoas</span></div>
+        <div class="meter"><i id="meter"></i></div>
+        <p class="alertline" id="alertLine" hidden></p>
+        <div class="pair">
+          <div class="in"><small>Entradas</small><b id="nIn">0</b></div>
+          <div class="out"><small>Saídas</small><b id="nOut">0</b></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head">
+          <h2>Fluxo por minuto · últimos 30 min</h2>
+          <div class="legend"><span><i style="background:var(--in)"></i>Entradas</span><span><i style="background:var(--out)"></i>Saídas</span></div>
+        </div>
+        <canvas id="chart" role="img" aria-label="Gráfico de barras de entradas e saídas por minuto"></canvas>
+      </div>
+
+      <div class="panel">
+        <h2>Ajustes</h2>
+        <div class="fields">
+          <label class="field">Nome do local<input type="text" id="inLocal" value="Entrada principal"></label>
+          <label class="field">Limite de lotação<input type="number" id="inLimite" min="1" value="50"></label>
+          <label class="field wide">Confiança mínima da detecção: <span id="confVal">50%</span>
+            <input type="range" id="inConf" min="20" max="90" step="5" value="50"></label>
+          <label class="field wide">Webhook (n8n → BigQuery)
+            <input type="url" id="inHook" placeholder="https://seu-n8n/webhook/contador-fluxo"></label>
+        </div>
+        <div class="bar">
+          <button class="btn sm" id="btnTest">Enviar evento de teste</button>
+          <span class="hint" id="hookState">Sem webhook configurado.</span>
+        </div>
+        <details>
+          <summary>Formato do evento e tabela no BigQuery</summary>
+<pre>POST application/json
+{
+  "event_id": "uuid",
+  "timestamp": "2026-11-09T14:03:22.120Z",
+  "local": "Entrada principal",
+  "direcao": "entrada",        // ou "saida"
+  "entradas_total": 12,
+  "saidas_total": 7,
+  "lotacao": 5,
+  "limite": 50,
+  "track_id": 31,
+  "origem": "contador-web"
+}
+
+CREATE TABLE fluxo.eventos (
+  event_id STRING, timestamp TIMESTAMP, local STRING,
+  direcao STRING, entradas_total INT64, saidas_total INT64,
+  lotacao INT64, limite INT64, track_id INT64, origem STRING
+) PARTITION BY DATE(timestamp);</pre>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="head">
+      <h2>Registro de passagens</h2>
+      <div class="bar">
+        <button class="btn sm" id="btnCsv">Exportar CSV</button>
+        <button class="btn sm danger" id="btnReset">Zerar contagem</button>
+      </div>
+    </div>
+    <p class="empty" id="logEmpty">Nenhuma passagem registrada ainda.</p>
+    <div class="tablewrap" id="logWrap" hidden>
+      <table><thead><tr><th>Hora</th><th>Sentido</th><th>Lotação</th><th>Local</th><th>Envio</th></tr></thead><tbody id="logBody"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id);};
+var TFJS="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js";
+var COCO="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js";
+
+var S={
+  mode:"demo",            // demo | loading | camera | idle
+  entradas:0,saidas:0,ajuste:0,
+  events:[],buckets:new Map(),
+  tracks:[],nextId:1,
+  line:{a:{x:.5,y:.88},b:{x:.5,y:.12}},invert:false,
+  minScore:.5,limite:50,local:"Entrada principal",
+  webhook:"",queue:[],sent:0,hookErr:null,
+  W:960,H:540,fps:0
+};
+var video=$("video"),overlay=$("overlay"),ctx=overlay.getContext("2d"),stage=$("stage");
+var model=null,stream=null,wakeLock=null;
+
+/* ---------- geometria e rastreamento ---------- */
+function lineInfo(px,py){
+  var ax=S.line.a.x*S.W,ay=S.line.a.y*S.H,bx=S.line.b.x*S.W,by=S.line.b.y*S.H;
+  var dx=bx-ax,dy=by-ay,len2=dx*dx+dy*dy||1,len=Math.sqrt(len2);
+  return {dist:(dx*(py-ay)-dy*(px-ax))/len, t:((px-ax)*dx+(py-ay)*dy)/len2};
+}
+function updateTracks(dets,now){
+  var pairs=[],i,j;
+  for(i=0;i<S.tracks.length;i++){
+    var t=S.tracks[i],gate=Math.max(t.w,t.h)*.7+.03*S.W;
+    for(j=0;j<dets.length;j++){
+      var d=dets[j],dist=Math.hypot(d.x+d.w/2-t.cx,d.y+d.h/2-t.cy);
+      if(dist<gate)pairs.push([dist,i,j]);
+    }
+  }
+  pairs.sort(function(a,b){return a[0]-b[0];});
+  var usedT={},usedD={};
+  pairs.forEach(function(p){
+    if(usedT[p[1]]||usedD[p[2]])return;
+    usedT[p[1]]=usedD[p[2]]=true;
+    var t=S.tracks[p[1]],d=dets[p[2]];
+    t.cx=d.x+d.w/2;t.cy=d.y+d.h/2;t.x=d.x;t.y=d.y;t.w=d.w;t.h=d.h;t.last=now;
+    checkCross(t);
+  });
+  for(j=0;j<dets.length;j++){
+    if(usedD[j])continue;
+    var n=dets[j],nt={id:S.nextId++,cx:n.x+n.w/2,cy:n.y+n.h/2,x:n.x,y:n.y,w:n.w,h:n.h,last:now,side:0};
+    checkCross(nt);S.tracks.push(nt);
+  }
+  S.tracks=S.tracks.filter(function(t){return now-t.last<900;});
+}
+function checkCross(t){
+  var li=lineInfo(t.cx,t.cy),dead=.02*Math.min(S.W,S.H);
+  if(Math.abs(li.dist)<dead)return;
+  var side=li.dist>0?1:-1;
+  if(t.side!==0&&side!==t.side&&li.t>-.05&&li.t<1.05){
+    var entrada=(side>0)!==S.invert;
+    registrar(entrada?"entrada":"saida",t.id);
+  }
+  t.side=side;
+}
+
+/* ---------- contagem ---------- */
+function lotacao(){return Math.max(0,S.entradas-S.saidas+S.ajuste);}
+function uuid(){return (window.crypto&&crypto.randomUUID)?crypto.randomUUID():"e"+Date.now()+"-"+Math.random().toString(16).slice(2);}
+function registrar(dir,trackId){
+  if(dir==="entrada")S.entradas++;else S.saidas++;
+  var now=new Date(),key=Math.floor(now.getTime()/60000);
+  var b=S.buckets.get(key)||{e:0,s:0};if(dir==="entrada")b.e++;else b.s++;S.buckets.set(key,b);
+  var ev={event_id:uuid(),timestamp:now.toISOString(),local:S.local,direcao:dir,
+    entradas_total:S.entradas,saidas_total:S.saidas,lotacao:lotacao(),limite:S.limite,track_id:trackId,
+    modo:S.mode==="camera"?"camera":"demo",envio:"—"};
+  S.events.push(ev);
+  if(ev.modo==="camera"&&S.webhook){ev.envio="pendente";S.queue.push(ev);flush();}
+  renderCounts();renderLog();drawChart();
+}
+function payload(ev){
+  return {event_id:ev.event_id,timestamp:ev.timestamp,local:ev.local,direcao:ev.direcao,entradas_total:ev.entradas_total,
+    saidas_total:ev.saidas_total,lotacao:ev.lotacao,limite:ev.limite,track_id:ev.track_id,origem:"contador-web"};
+}
+function zerar(){
+  S.entradas=S.saidas=S.ajuste=0;S.events=[];S.buckets=new Map();S.queue=[];S.sent=0;S.hookErr=null;
+  S.tracks.forEach(function(t){t.side=0;});
+  renderCounts();renderLog();drawChart();renderHook();
+}
+
+/* ---------- webhook ---------- */
+var sending=false;
+function flush(){
+  if(sending||!S.webhook||!S.queue.length)return;
+  sending=true;
+  (function next(){
+    if(!S.queue.length||!S.webhook){sending=false;renderHook();renderLog();return;}
+    var ev=S.queue[0];
+    post(payload(ev)).then(function(){ev.envio="enviado";S.sent++;S.hookErr=null;S.queue.shift();next();})
+      .catch(function(e){S.hookErr=e.message||"falha de rede";sending=false;renderHook();renderLog();});
+  })();
+}
+function post(body){
+  return fetch(S.webhook,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);});
+}
+setInterval(flush,15000);
+function renderHook(){
+  var el=$("hookState");
+  if(!S.webhook){el.textContent="Sem webhook configurado.";return;}
+  var s=S.sent+" enviados · "+S.queue.length+" pendentes";
+  if(S.hookErr)s+=" · erro: "+S.hookErr+" (nova tentativa a cada 15 s)";
+  el.textContent=s;
+}
+
+/* ---------- interface ---------- */
+function renderCounts(){
+  var occ=lotacao(),pct=Math.min(100,occ/S.limite*100);
+  $("occ").textContent=occ;$("occOf").textContent="de "+S.limite+" pessoas";
+  $("nIn").textContent=S.entradas;$("nOut").textContent=S.saidas;
+  $("meter").style.width=pct+"%";
+  $("occWrap").dataset.lvl=occ>=S.limite?"alert":(pct>=90?"warn":"ok");
+  var al=$("alertLine");al.hidden=occ<S.limite;
+  if(occ>=S.limite)al.textContent="Limite de lotação atingido. Segure novas entradas.";
+}
+function renderLog(){
+  var body=$("logBody");body.textContent="";
+  var has=S.events.length>0;$("logEmpty").hidden=has;$("logWrap").hidden=!has;
+  S.events.slice(-60).reverse().forEach(function(ev){
+    var tr=document.createElement("tr");
+    function td(txt,cls){var c=document.createElement("td");c.textContent=txt;if(cls)c.className=cls;tr.appendChild(c);}
+    td(new Date(ev.timestamp).toLocaleTimeString("pt-BR"));
+    td(ev.direcao==="entrada"?"Entrada":"Saída","tag "+(ev.direcao==="entrada"?"in":"out"));
+    td(String(ev.lotacao));td(ev.local);td(ev.modo==="demo"?"simulado":ev.envio);
+    body.appendChild(tr);
+  });
+}
+function setStatus(kind,text){$("status").dataset.s=kind;$("statusText").textContent=text;}
+function showMsg(text){$("msg").hidden=!text;$("msgText").textContent=text||"";}
+function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+
+function drawChart(){
+  var c=$("chart"),dpr=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;
+  if(!w)return;
+  c.width=w*dpr;c.height=h*dpr;var g=c.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);
+  var N=30,nowMin=Math.floor(Date.now()/60000),data=[],max=0,i;
+  for(i=0;i<N;i++){var k=nowMin-(N-1-i),b=S.buckets.get(k)||{e:0,s:0};data.push({k:k,e:b.e,s:b.s});max=Math.max(max,b.e,b.s);}
+  var step=Math.max(1,Math.ceil(max/4)),top=step*4,pl=26,pr=4,pt=8,pb=20,ph=h-pt-pb,slot=(w-pl-pr)/N;
+  g.font="11px "+cssVar("--font-body");g.textBaseline="middle";
+  for(i=0;i<=4;i++){
+    var y=pt+ph-ph*i/4;
+    g.strokeStyle=cssVar("--line");g.lineWidth=1;g.beginPath();g.moveTo(pl,y+.5);g.lineTo(w-pr,y+.5);g.stroke();
+    g.fillStyle=cssVar("--muted");g.textAlign="right";g.fillText(String(i*step),pl-6,y);
+  }
+  var bw=Math.max(2,slot*.36);
+  data.forEach(function(d,idx){
+    var x=pl+idx*slot+slot*.1;
+    g.fillStyle=cssVar("--in");var he=ph*d.e/top;g.fillRect(x,pt+ph-he,bw,he);
+    g.fillStyle=cssVar("--out");var hs=ph*d.s/top;g.fillRect(x+bw+1,pt+ph-hs,bw,hs);
+    if(d.k%10===0){
+      var dt=new Date(d.k*60000),lab=("0"+dt.getHours()).slice(-2)+":"+("0"+dt.getMinutes()).slice(-2);
+      g.fillStyle=cssVar("--muted");g.textAlign="center";g.textBaseline="top";
+      g.fillText(lab,Math.min(w-pr-16,Math.max(pl+14,x+bw)),pt+ph+5);g.textBaseline="middle";
+    }
+  });
+}
+
+/* ---------- desenho do palco ---------- */
+function fitCanvas(){
+  var dpr=window.devicePixelRatio||1,w=stage.clientWidth,h=stage.clientHeight;
+  if(overlay.width!==Math.round(w*dpr)||overlay.height!==Math.round(h*dpr)){overlay.width=Math.round(w*dpr);overlay.height=Math.round(h*dpr);}
+  ctx.setTransform(dpr,0,0,dpr,0,0);return {w:w,h:h};
+}
+function placeHandles(){
+  $("hA").style.left=S.line.a.x*100+"%";$("hA").style.top=S.line.a.y*100+"%";
+  $("hB").style.left=S.line.b.x*100+"%";$("hB").style.top=S.line.b.y*100+"%";
+}
+function draw(now){
+  var sz=fitCanvas(),w=sz.w,h=sz.h,sx=w/S.W,sy=h/S.H;
+  ctx.clearRect(0,0,w,h);
+  if(S.mode==="demo")drawDemoScene(w,h,sx,sy);
+  // caixas das pessoas rastreadas
+  ctx.lineWidth=2;ctx.font="600 12px sans-serif";ctx.textBaseline="bottom";ctx.textAlign="left";
+  S.tracks.forEach(function(t){
+    if(now-t.last>250)return;
+    ctx.strokeStyle="#ffd24a";ctx.strokeRect(t.x*sx,t.y*sy,t.w*sx,t.h*sy);
+    ctx.fillStyle="#ffd24a";ctx.beginPath();ctx.arc(t.cx*sx,t.cy*sy,4,0,6.3);ctx.fill();
+    ctx.fillText("#"+t.id,t.x*sx+2,t.y*sy-3);
+  });
+  // linha de contagem e seta de entrada
+  var ax=S.line.a.x*w,ay=S.line.a.y*h,bx=S.line.b.x*w,by=S.line.b.y*h;
+  ctx.lineCap="round";ctx.strokeStyle="rgba(0,0,0,.55)";ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+  ctx.strokeStyle="#4da3ff";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+  var dx=bx-ax,dy=by-ay,len=Math.hypot(dx,dy)||1,nx=-dy/len,ny=dx/len;
+  if(S.invert){nx=-nx;ny=-ny;}
+  var mx=(ax+bx)/2,my=(ay+by)/2,L=46,ex=mx+nx*L,ey=my+ny*L;
+  ctx.strokeStyle="#3ecf9e";ctx.fillStyle="#3ecf9e";ctx.lineWidth=4;
+  ctx.beginPath();ctx.moveTo(mx-nx*14,my-ny*14);ctx.lineTo(ex,ey);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(ex+nx*12,ey+ny*12);ctx.lineTo(ex-ny*9,ey+nx*9);ctx.lineTo(ex+ny*9,ey-nx*9);ctx.closePath();ctx.fill();
+  ctx.font="600 12px sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
+  var tx=Math.min(w-34,Math.max(34,ex+nx*40)),ty=Math.min(h-12,Math.max(12,ey+ny*26));
+  ctx.strokeStyle="rgba(0,0,0,.7)";ctx.lineWidth=3;ctx.strokeText("ENTRADA",tx,ty);ctx.fillText("ENTRADA",tx,ty);
+}
+
+/* ---------- demonstração ---------- */
+var walkers=[],nextSpawn=0,lastT=0;
+function drawDemoScene(w,h,sx,sy){
+  ctx.fillStyle="#18222c";ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle="rgba(255,255,255,.06)";ctx.lineWidth=1;
+  for(var gx=0;gx<=S.W;gx+=80){ctx.beginPath();ctx.moveTo(gx*sx,0);ctx.lineTo(gx*sx,h);ctx.stroke();}
+  for(var gy=0;gy<=S.H;gy+=80){ctx.beginPath();ctx.moveTo(0,gy*sy);ctx.lineTo(w,gy*sy);ctx.stroke();}
+  walkers.slice().sort(function(a,b){return a.y-b.y;}).forEach(function(p){
+    var bw=p.w*sx,bh=p.h*sy,x=p.x*sx,y=p.y*sy;
+    ctx.fillStyle=p.c;
+    ctx.beginPath();ctx.arc(x,y-bh+bw*.3,bw*.3,0,6.3);ctx.fill();
+    ctx.fillRect(x-bw*.38,y-bh+bw*.66,bw*.76,bh-bw*.66);
+  });
+}
+function demoStep(now){
+  var dt=Math.min(.1,(now-lastT)/1000||0);lastT=now;
+  if(now>nextSpawn){
+    var occ=lotacao(),pIn=occ<4?.8:(occ>14?.3:.55),goIn=Math.random()<pIn,sc=.75+Math.random()*.5;
+    walkers.push({x:goIn?-40:S.W+40,y:170+Math.random()*340,v:(goIn?1:-1)*(110+Math.random()*90),w:54*sc,h:140*sc,
+      c:["#7f93a8","#a5907a","#8fa58c","#9b8fb3"][Math.floor(Math.random()*4)]});
+    nextSpawn=now+900+Math.random()*1700;
+  }
+  walkers.forEach(function(p){p.x+=p.v*dt;});
+  walkers=walkers.filter(function(p){return p.x>-80&&p.x<S.W+80;});
+  var dets=walkers.map(function(p){return {x:p.x-p.w/2+(Math.random()-.5)*3,y:p.y-p.h+(Math.random()-.5)*3,w:p.w,h:p.h};});
+  updateTracks(dets,now);
+}
+
+/* ---------- câmera ---------- */
+function loadScript(src){
+  return new Promise(function(res,rej){var s=document.createElement("script");s.src=src;s.onload=res;
+    s.onerror=function(){rej(new Error("Não foi possível baixar o modelo de detecção. Verifique a internet e tente de novo."));};document.head.appendChild(s);});
+}
+function ensureModel(){
+  if(model)return Promise.resolve(model);
+  return (window.tf?Promise.resolve():loadScript(TFJS))
+    .then(function(){return window.cocoSsd?null:loadScript(COCO);})
+    .then(function(){return cocoSsd.load({base:"lite_mobilenet_v2"});})
+    .then(function(m){model=m;return m;});
+}
+function openStream(deviceId){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)
+    return Promise.reject(new Error("Este navegador só libera a câmera em páginas https ou em localhost. Abra o arquivo no Chrome do computador ou publique-o em um endereço https."));
+  var v={width:{ideal:1280},height:{ideal:720}};
+  if(deviceId)v.deviceId={exact:deviceId};else v.facingMode={ideal:"environment"};
+  return navigator.mediaDevices.getUserMedia({video:v,audio:false});
+}
+function stopStream(){if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}video.srcObject=null;}
+function listCams(){
+  return navigator.mediaDevices.enumerateDevices().then(function(devs){
+    var sel=$("camSel"),cams=devs.filter(function(d){return d.kind==="videoinput";});
+    var cur=stream&&stream.getVideoTracks()[0].getSettings().deviceId;
+    sel.textContent="";
+    cams.forEach(function(c,i){var o=document.createElement("option");o.value=c.deviceId;o.textContent=c.label||("Câmera "+(i+1));if(c.deviceId===cur)o.selected=true;sel.appendChild(o);});
+    sel.hidden=cams.length<2;
+  }).catch(function(){});
+}
+function startCamera(deviceId){
+  var wasDemo=S.mode==="demo";
+  S.mode="loading";$("demoChip").hidden=true;S.tracks=[];walkers=[];
+  setStatus("idle","Preparando");showMsg("Abrindo a câmera e carregando o modelo de detecção…");
+  $("btnCam").disabled=true;
+  stopStream();
+  openStream(deviceId).then(function(st){
+    stream=st;video.srcObject=st;video.hidden=false;
+    return video.play();
+  }).then(ensureModel).then(function(){
+    S.W=video.videoWidth||1280;S.H=video.videoHeight||720;
+    stage.style.aspectRatio=S.W+" / "+S.H;
+    if(wasDemo)zerar();
+    S.mode="camera";showMsg("");$("btnCam").textContent="Parar câmera";$("btnCam").disabled=false;
+    setStatus("live","Câmera ativa");listCams();
+    if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(l){wakeLock=l;}).catch(function(){});
+    detectLoop();
+  }).catch(function(e){
+    stopStream();video.hidden=true;S.mode="idle";$("btnCam").disabled=false;$("btnCam").textContent="Iniciar câmera";
+    var m=e&&e.message||"Erro ao abrir a câmera.";
+    if(e&&e.name==="NotAllowedError")m="O acesso à câmera foi negado. Libere a câmera no cadeado da barra de endereço e clique em Iniciar câmera de novo.";
+    if(e&&e.name==="NotFoundError")m="Nenhuma câmera foi encontrada neste aparelho.";
+    setStatus("err","Câmera indisponível");showMsg(m);
+  });
+}
+function stopCamera(){
+  stopStream();video.hidden=true;S.mode="idle";S.tracks=[];
+  if(wakeLock){wakeLock.release().catch(function(){});wakeLock=null;}
+  $("btnCam").textContent="Iniciar câmera";$("camSel").hidden=true;
+  setStatus("idle","Câmera parada");showMsg("Câmera parada. A contagem foi mantida e pode ser exportada.");
+}
+var frames=0,fpsT=0;
+function detectLoop(){
+  if(S.mode!=="camera")return;
+  var go=function(){requestAnimationFrame(detectLoop);};
+  if(video.readyState<2){go();return;}
+  model.detect(video,20,S.minScore).then(function(preds){
+    if(S.mode!=="camera")return;
+    var now=performance.now();
+    var dets=preds.filter(function(p){return p.class==="person";}).map(function(p){return {x:p.bbox[0],y:p.bbox[1],w:p.bbox[2],h:p.bbox[3]};});
+    updateTracks(dets,now);draw(now);
+    frames++;if(now-fpsT>1000){S.fps=Math.round(frames*1000/(now-fpsT));frames=0;fpsT=now;
+      setStatus("live","Câmera ativa · "+S.fps+" qps · "+dets.length+" em cena");}
+    go();
+  }).catch(function(e){setStatus("err","Falha na detecção");showMsg("A detecção parou: "+(e.message||e));});
+}
+function demoLoop(now){
+  if(S.mode==="demo"){demoStep(now);draw(now);}
+  else if(S.mode!=="camera")draw(now);
+  requestAnimationFrame(demoLoop);
+}
+
+/* ---------- eventos de interface ---------- */
+$("btnCam").addEventListener("click",function(){if(S.mode==="camera")stopCamera();else startCamera();});
+$("camSel").addEventListener("change",function(e){startCamera(e.target.value);});
+$("btnInv").addEventListener("click",function(){S.invert=!S.invert;});
+$("btnLine").addEventListener("click",function(){
+  var vertical=Math.abs(S.line.a.x-S.line.b.x)<Math.abs(S.line.a.y-S.line.b.y);
+  if(vertical){S.line={a:{x:.12,y:.55},b:{x:.88,y:.55}};this.textContent="Linha vertical";}
+  else{S.line={a:{x:.5,y:.88},b:{x:.5,y:.12}};this.textContent="Linha horizontal";}
+  S.tracks.forEach(function(t){t.side=0;});placeHandles();
+});
+function clamp(v){return Math.min(.98,Math.max(.02,v));}
+[["hA","a"],["hB","b"]].forEach(function(pair){
+  var el=$(pair[0]),pt=pair[1],drag=false;
+  el.addEventListener("pointerdown",function(e){drag=true;el.setPointerCapture(e.pointerId);e.preventDefault();});
+  el.addEventListener("pointermove",function(e){
+    if(!drag)return;var r=stage.getBoundingClientRect();
+    S.line[pt].x=clamp((e.clientX-r.left)/r.width);S.line[pt].y=clamp((e.clientY-r.top)/r.height);placeHandles();
+  });
+  var end=function(){if(drag){drag=false;S.tracks.forEach(function(t){t.side=0;});}};
+  el.addEventListener("pointerup",end);el.addEventListener("pointercancel",end);
+  el.addEventListener("keydown",function(e){
+    var d={ArrowLeft:[-.01,0],ArrowRight:[.01,0],ArrowUp:[0,-.01],ArrowDown:[0,.01]}[e.key];
+    if(!d)return;e.preventDefault();S.line[pt].x=clamp(S.line[pt].x+d[0]);S.line[pt].y=clamp(S.line[pt].y+d[1]);placeHandles();
+  });
+});
+$("btnPlus").addEventListener("click",function(){S.ajuste++;renderCounts();});
+$("btnMinus").addEventListener("click",function(){if(lotacao()>0){S.ajuste--;renderCounts();}});
+$("inLocal").addEventListener("input",function(e){S.local=e.target.value.trim()||"Local";});
+$("inLimite").addEventListener("input",function(e){var v=parseInt(e.target.value,10);if(v>0){S.limite=v;renderCounts();}});
+$("inConf").addEventListener("input",function(e){S.minScore=e.target.value/100;$("confVal").textContent=e.target.value+"%";});
+$("inHook").addEventListener("change",function(e){
+  var u=e.target.value.trim();
+  if(u&&!/^https?:\/\//i.test(u)){S.webhook="";$("hookState").textContent="O endereço precisa começar com https://";return;}
+  S.webhook=u;S.hookErr=null;renderHook();flush();
+});
+$("btnTest").addEventListener("click",function(){
+  if(!S.webhook){$("hookState").textContent="Informe o endereço do webhook primeiro.";return;}
+  $("hookState").textContent="Enviando teste…";
+  post({event_id:uuid(),timestamp:new Date().toISOString(),local:S.local,direcao:"entrada",entradas_total:S.entradas,saidas_total:S.saidas,
+    lotacao:lotacao(),limite:S.limite,track_id:0,origem:"contador-web-teste"})
+    .then(function(){$("hookState").textContent="Teste recebido pelo webhook.";})
+    .catch(function(e){$("hookState").textContent="O teste falhou: "+(e.message||"falha de rede")+". Confira o endereço e a liberação de CORS no webhook.";});
+});
+$("btnCsv").addEventListener("click",function(){
+  var cols=["event_id","timestamp","local","direcao","entradas_total","saidas_total","lotacao","limite","track_id","modo"];
+  var rows=[cols.join(",")].concat(S.events.map(function(ev){
+    return cols.map(function(c){var v=String(ev[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(",");
+  }));
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob(["﻿"+rows.join("\n")],{type:"text/csv;charset=utf-8"}));
+  a.download="fluxo-"+new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")+".csv";
+  document.body.appendChild(a);a.click();a.remove();
+});
+var resetArmed=null;
+$("btnReset").addEventListener("click",function(){
+  var b=this;
+  if(resetArmed){clearTimeout(resetArmed);resetArmed=null;b.textContent="Zerar contagem";zerar();return;}
+  b.textContent="Confirmar: apagar tudo";
+  resetArmed=setTimeout(function(){resetArmed=null;b.textContent="Zerar contagem";},4000);
+});
+window.addEventListener("resize",drawChart);
+setInterval(drawChart,10000);
+
+placeHandles();renderCounts();renderLog();drawChart();
+requestAnimationFrame(demoLoop);
+window.__S=S;
+})();
+</script>
+</body>
+</html>
